@@ -11,6 +11,7 @@ A tutorial for adding live weather radar to a website using LibreWXR. No prior e
   - [Tile URL Format](#tile-url-format)
   - [Satellite Tile URL Format](#satellite-tile-url-format)
   - [Coverage Tile Endpoint](#coverage-tile-endpoint)
+  - [Tile Bundle Endpoint](#tile-bundle-endpoint)
   - [Widgets and Single-Location Images](#widgets-and-single-location-images)
   - [Alerts Endpoint](#alerts-endpoint)
   - [Storm Cells Endpoint](#storm-cells-endpoint)
@@ -210,6 +211,42 @@ GET /v2/coverage/0/{size}/{z}/{x}/{y}/0/0_0.png
 ```
 
 Returns a tile showing where radar data exists (useful for debugging or displaying coverage boundaries). The coverage tile is always PNG format. A lat/lon window variant also exists at `/v2/coverage/0/{size}/{z}/{lat}/{lon}/0/0_0.png` — see the Widgets and Single-Location Images section for the dot rule and semantics.
+
+### Tile Bundle Endpoint
+
+```
+GET /v2/radar/{timestamp}/bundle/{size}/{z}/{x_min}/{y_min}/{x_max}/{y_max}/{color}/{smooth}_{snow}.{ext}
+```
+
+Renders **every tile of one frame** inside an inclusive tile rectangle and returns them as a single response, so a viewport that needs 20–40 tiles costs one HTTP request instead of one per tile. The `{timestamp}`, `{size}`, `{z}`, `{color}`, `{smooth}_{snow}` and `{ext}` slots mean exactly what they do on the plain tile URL (`0` = latest is supported). The rectangle is capped at `LIBREWXR_BUNDLE_MAX_TILES` tiles (default 256); a larger rectangle returns `400`, and the endpoint returns `503` when `LIBREWXR_BUNDLE_ENABLED=false`.
+
+**Response — `LWXB` container** (`Content-Type: application/vnd.librewxr.tilebundle`):
+
+| Bytes | Meaning |
+| --- | --- |
+| `0..3` | magic `LWXB` |
+| `4` | version (`1`) |
+| `5..7` | reserved |
+| `8..11` | `uint32` little-endian manifest length `M` |
+| `12..12+M` | UTF-8 JSON manifest |
+| `12+M..` | tile payloads (PNG/WebP), concatenated, uncompressed container |
+
+The manifest lists `tiles` as `{ "x", "y", "o", "n" }` where `o` is the payload's byte offset **within the payload region** (relative to `12 + M`) and `n` its length. **Fully transparent tiles are omitted** — treat a missing `(x, y)` as blank. Unpacking is a few lines of JavaScript (no decompression):
+
+```javascript
+const buf = await (await fetch(bundleUrl)).arrayBuffer();
+const dv = new DataView(buf);
+// magic check: dv.getUint32(0, true) === 0x4258574c  ("LWXB")
+const mLen = dv.getUint32(8, true);
+const manifest = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 12, mLen)));
+const base = 12 + mLen;
+for (const t of manifest.tiles) {
+    const blob = new Blob([buf.slice(base + t.o, base + t.o + t.n)], { type: manifest.content_type });
+    const url = URL.createObjectURL(blob);   // feed to an <img> / L.imageOverlay / GridLayer
+}
+```
+
+`examples/bundle-benchmark.html` is a runnable page that times this against per-tile fetching for your current viewport and animates the bundled frames. The `/health` response advertises `tile_bundles.enabled` and `tile_bundles.max_tiles`.
 
 ### Widgets and Single-Location Images
 

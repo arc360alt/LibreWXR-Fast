@@ -342,6 +342,7 @@ def build_pages(args):
         ("maplibre.html.js", "maplibre.html"),
         ("hero.html.js", "hero.html"),
         ("widget.html.js", "widget.html"),
+        ("bundle-benchmark.html.js", "bundle-benchmark.html"),
     ]
     for shell, out in pages:
         html = GENERATED_COMMENT + "\n" + marker + "\n" + inline_assets(read_file(os.path.join(SRC_DIR, shell)))

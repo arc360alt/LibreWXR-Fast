@@ -103,6 +103,11 @@ class Settings(BaseSettings):
     noise_floor_dbz: float = 10.0  # Minimum dBZ to display; lower values are zeroed out
     despeckle_min_neighbors: int = 3  # Min non-zero neighbors (of 8) to keep a pixel; 0 to disable
     webp_quality: int = 100  # WebP quality: 100 = lossless (default), 1-99 = lossy at that quality
+    # Single-request tile bundles (see tiles/bundle.py + the /v2/radar bundle
+    # route): one HTTP request renders every tile of one frame within a
+    # viewport rectangle and returns them concatenated in an ``LWXB`` archive.
+    bundle_enabled: bool = True  # Kill switch; False makes the bundle route return 503
+    bundle_max_tiles: int = 256  # Max tiles per bundle request (rectangle area ceiling)
     workers: int = 0  # Number of uvicorn worker processes; 0 = mode default
     warmer_threads: int = 0  # Render thread pool size; 0 = mode default (auto in single, 4 in multi) (sizes the request-executor pool in multi mode; the warmer itself is single-mode only)
     # Pre-warm coordinate caches up to this zoom as a background task at

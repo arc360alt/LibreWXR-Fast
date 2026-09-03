@@ -39,6 +39,10 @@ from librewxr.data.worker_pulse import read_worker_pulses
 from librewxr.mcp.discovery import build_ai_catalog
 from librewxr.memory import detect_memory_limit_mb
 from librewxr.tiles import window
+from librewxr.tiles.bundle import (
+    BUNDLE_CONTENT_TYPE,
+    build_tile_bundle,
+)
 from librewxr.tiles.cache import CachedRender, TileCache
 from librewxr.tiles.coordinates import (
     coord_cache_bytes,
@@ -593,6 +597,10 @@ async def health():
             "window_bytes": cache_kind_window_bytes,
             "satellite_entries": cache_kind_satellite,
             "satellite_bytes": cache_kind_satellite_bytes,
+        },
+        "tile_bundles": {
+            "enabled": settings.bundle_enabled,
+            "max_tiles": settings.bundle_max_tiles,
         },
         **_nwp_grid_health_blocks(),
         "nwp_chain": {
@@ -1424,6 +1432,97 @@ async def radar_tile(
         body=tile_bytes,
         etag=etag,
         content_type=_content_type(ext),
+        max_age=max_age,
+        extra_headers={"X-Frame-Timestamp": str(timestamp)},
+    )
+
+
+@router.get(
+    "/v2/radar/{timestamp}/bundle/{size}/{z}/{x_min}/{y_min}/{x_max}/{y_max}/{color}/{smooth_snow}.{ext}"
+)
+async def radar_tile_bundle(
+    request: Request,
+    timestamp: int,
+    size: int = Path(ge=256, le=512),
+    z: int = Path(ge=0),
+    x_min: int = Path(ge=0),
+    y_min: int = Path(ge=0),
+    x_max: int = Path(ge=0),
+    y_max: int = Path(ge=0),
+    color: int = Path(ge=0, le=255),
+    smooth_snow: str = Path(pattern=r"^\d+_\d+$"),
+    ext: str = Path(pattern=r"^(png|webp)$"),
+) -> Response:
+    """Render every tile of one frame in a viewport rectangle as one archive.
+
+    ``timestamp`` accepts ``0`` = latest past frame (same alias as the tile
+    route).  The rectangle is inclusive on both axes.  The response is an
+    ``LWXB`` container (see ``librewxr.tiles.bundle``); fully transparent
+    tiles are omitted from it.
+    """
+    if not settings.bundle_enabled:
+        raise HTTPException(status_code=503, detail="Tile bundles not available")
+    if z > settings.max_zoom:
+        raise HTTPException(status_code=400, detail=f"Zoom {z} exceeds max {settings.max_zoom}")
+
+    timestamp = await _resolve_radar_timestamp(timestamp)
+
+    max_tiles = 2**z
+    if x_min > x_max or y_min > y_max:
+        raise HTTPException(status_code=400, detail="Invalid tile rectangle")
+    if x_max >= max_tiles or y_max >= max_tiles:
+        raise HTTPException(status_code=400, detail="Tile coordinates out of range")
+    area = (x_max - x_min + 1) * (y_max - y_min + 1)
+    if area > settings.bundle_max_tiles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Bundle covers {area} tiles, max {settings.bundle_max_tiles}",
+        )
+
+    parts = smooth_snow.split("_")
+    smooth = parts[0] == "1"
+    snow = parts[1] == "1" if len(parts) > 1 else False
+    tile_size = 512 if size >= 512 else 256
+
+    # Frame resolution mirrors ``radar_tile``: radar store first, nowcast
+    # store fallback, 404 when neither has the timestamp.
+    frame = await frame_store.get_frame(timestamp)
+    nowcast_blend = None
+    if frame is None and nowcast_store is not None:
+        nc_frame, nowcast_blend = await nowcast_store.get_frame(timestamp)
+        if nc_frame is not None:
+            frame = nc_frame
+    if frame is None:
+        raise HTTPException(status_code=404, detail="Frame not found")
+
+    bundle = await asyncio.to_thread(
+        build_tile_bundle,
+        frame_regions=frame.regions,
+        timestamp=timestamp,
+        z=z,
+        x_min=x_min, y_min=y_min, x_max=x_max, y_max=y_max,
+        tile_size=tile_size,
+        smooth=smooth,
+        snow=snow,
+        color=color,
+        ext=ext,
+        nwp_chain=nwp_chain,
+        enabled_regions=enabled_regions,
+        nowcast_blend=nowcast_blend,
+        precip_mask=precip_mask,
+        tile_cache=tile_cache,
+    )
+    etag = compute_etag(bundle)
+
+    timestamps = await _latest_timestamps_cached()
+    latest_ts = max(timestamps) if timestamps else None
+    max_age = 7200 if (latest_ts is not None and timestamp < latest_ts) else 300
+
+    return conditional_response(
+        request=request,
+        body=bundle,
+        etag=etag,
+        content_type=BUNDLE_CONTENT_TYPE,
         max_age=max_age,
         extra_headers={"X-Frame-Timestamp": str(timestamp)},
     )

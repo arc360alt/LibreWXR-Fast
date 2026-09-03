@@ -484,6 +484,28 @@ The lossless path uses libwebp's fast `method=1` preset: sizes stay within ~1% o
 
 PNG tiles are encoded adaptively and losslessly: when a tile's final pixels contain at most 256 unique RGBA colors (typical for unsmoothed radar tiles), the encoder builds an exact 8-bit palette from those colors and writes a palette (P-mode) PNG with a `tRNS` chunk carrying full 8-bit alpha; otherwise it writes a plain 32-bit RGBA PNG. No configuration knob is needed — the encoder selects the smaller representation automatically, and both paths reproduce the input pixels bit-for-bit.
 
+### `LIBREWXR_BUNDLE_ENABLED`
+
+Enables the tile bundle endpoint (`GET /v2/radar/{ts}/bundle/{size}/{z}/{x_min}/{y_min}/{x_max}/{y_max}/{color}/{smooth}_{snow}.{ext}`), which renders every tile of one frame inside a tile rectangle and returns them concatenated in a single `LWXB` response.
+
+| | |
+|---|---|
+| **Default** | `true` |
+| **Type** | boolean |
+
+When `false` the endpoint returns `503`. See the [web integration guide](web-integration-guide.md#tile-bundle-endpoint) for the container format.
+
+### `LIBREWXR_BUNDLE_MAX_TILES`
+
+Maximum number of tiles a single bundle request may cover (the rectangle's area). A request for a larger rectangle returns `400`.
+
+| | |
+|---|---|
+| **Default** | `256` |
+| **Type** | integer |
+
+Bundles are rendered with the same `TileCache` keys as individual tiles, so raising this mostly costs response size and one-off render time, not extra cache pressure.
+
 ### `LIBREWXR_TILE_CACHE_MB`
 
 Maximum tile cache size in megabytes, **per worker**. The cache stores pre-presentation `TileGeometry` records — uint8 pixel values plus an optional snow mask — keyed on `(timestamp, z, x, y, tile_size, smooth, snow)`. Color scheme, output format, and arrow style are applied per request in the cheap `present_tile` step, so one cached entry serves every variant of a given viewport. Oldest entries are evicted when this byte limit is reached.

@@ -783,11 +783,12 @@ Layered ahead of IFS via specificity-first dispatch (see the [Regional NWP chain
 
 ## Examples
 
-The `examples/` directory contains three self-contained HTML files showcasing the LibreWXR feature set. Each file is a single, liftable artifact — copy it into your own project and it runs standalone, no build step required:
+The `examples/` directory contains four self-contained HTML files showcasing the LibreWXR feature set. Each file is a single, liftable artifact — copy it into your own project and it runs standalone, no build step required:
 
 - **`leaflet.html`** — Leaflet-based weather map
 - **`maplibre.html`** — MapLibre GL JS-based weather map
 - **`widget.html`** — dependency-free radar widget built on the lat/lon-centered point-tile API
+- **`bundle-benchmark.html`** — times the single-request [tile bundle endpoint](docs/web-integration-guide.md#tile-bundle-endpoint) against per-tile fetching for your current viewport, then animates the bundled frames
 
 `hero.html` is a compact, config-locked variant of the Leaflet example used on the marketing site. The two map pages include:
 - **Source selector** — switch between local (`localhost:8080`) and the public instance (`api.librewxr.net`) with auto-detection
