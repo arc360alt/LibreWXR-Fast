@@ -23,14 +23,17 @@ Run without arguments to rewrite the tables in place:
 
     python3 scripts/generate_scheme_docs.py
 
-Run with ``--check`` to verify every region is up to date and that no doc or
-example still carries a stale scheme-count string; it writes nothing and
-exits 1 if anything is out of date:
+Run with ``--check`` to verify every region is up to date, that no doc or
+example still carries a stale scheme-count string, and that the
+``docs/color-schemes-preview.stamp`` fingerprint matches the current
+preview-PNG inputs (the scheme list, color-table data, and rendering
+script); it writes nothing and exits 1 if anything is out of date:
 
     python3 scripts/generate_scheme_docs.py --check
 """
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
 
@@ -40,6 +43,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # ``SCHEME_NAMES`` propagates through automatically.
 sys.path.insert(0, str(REPO_ROOT / "src"))
 from librewxr.colors.schemes import SCHEME_NAMES  # noqa: E402
+
+# Preview-PNG staleness tracking. ``scripts/generate_color_scheme_previews.py``
+# writes a fingerprint stamp of everything that shapes its PNGs; ``--check``
+# compares the current inputs against that stamp so stale previews fail CI.
+PREVIEW_SCRIPT = REPO_ROOT / "scripts" / "generate_color_scheme_previews.py"
+STAMP_PATH = REPO_ROOT / "docs" / "color-schemes-preview.stamp"
 
 
 # Verbatim descriptions, keyed by scheme ID (drawn from
@@ -62,6 +71,28 @@ DESCRIPTIONS = {
     14: "Radar palette inspired by the iOS Windy app, contributed by Gerrit Grunwald (Photo-Planner); gray for light precipitation deepening through blue / teal / green / yellow / orange into deep purple for extreme reflectivity",
     255: "Grayscale proportional to dBZ — useful for custom client-side coloring",
 }
+
+
+def compute_preview_fingerprint(preview_script: Path) -> str:
+    """Fingerprint the inputs that determine the preview PNG output.
+
+    Hashes the scheme list, the color-table data, the LUT-defining module,
+    and the preview-rendering script itself, so any change that would alter
+    the rendered PNGs invalidates the stamp. Must stay importable without
+    matplotlib (it only needs librewxr.colors.schemes, i.e. numpy).
+    """
+    hasher = hashlib.sha256()
+    hasher.update(b"librewxr-preview-fingerprint-v1\n")
+    # 1. The scheme list (ID + display name), sorted for stability.
+    for scheme_id, name in sorted(SCHEME_NAMES.items()):
+        hasher.update(f"{scheme_id}\x00{name}\x00".encode("utf-8"))
+    # 2. The LUT-defining module (headers + parsing rules).
+    hasher.update((REPO_ROOT / "src" / "librewxr" / "colors" / "schemes.py").read_bytes())
+    # 3. The color-table data the LUTs are parsed from.
+    hasher.update((REPO_ROOT / "src" / "librewxr" / "colors" / "color_table.csv").read_bytes())
+    # 4. The preview-rendering script itself (axis ranges, layout, DPI...).
+    hasher.update(preview_script.read_bytes())
+    return hasher.hexdigest()
 
 
 def _begin(region: str) -> str:
@@ -233,6 +264,26 @@ def check_mode() -> int:
 
     for location, line in stale_scan():
         problems.append((location, f"stale: {line.strip()}"))
+
+    # Verify the preview-PNG fingerprint stamp, so ``--check`` also catches
+    # previews generated before the latest scheme / color-table / script
+    # change.
+    if not STAMP_PATH.exists():
+        problems.append(
+            (
+                str(STAMP_PATH),
+                "missing stamp - run scripts/generate_color_scheme_previews.py to (re)generate the preview PNGs",
+            )
+        )
+    else:
+        stamp = STAMP_PATH.read_text(encoding="utf-8").strip()
+        if stamp != compute_preview_fingerprint(PREVIEW_SCRIPT):
+            problems.append(
+                (
+                    str(STAMP_PATH),
+                    "preview PNGs are stale - run scripts/generate_color_scheme_previews.py",
+                )
+            )
 
     if problems:
         for location, msg in problems:

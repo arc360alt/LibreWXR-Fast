@@ -1,0 +1,23 @@
+name: Scheme docs check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scheme-docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install numpy
+        run: pip install numpy
+      - name: Verify scheme docs and previews are up to date
+        run: python3 scripts/generate_scheme_docs.py --check

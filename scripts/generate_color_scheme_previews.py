@@ -13,6 +13,12 @@ One-off authoring tool — not a runtime dependency.  Regenerate after
 editing ``src/librewxr/colors/color_table.csv`` or adding a new scheme
 to ``SCHEME_NAMES``.
 
+A fingerprint stamp of every input that shapes these PNGs (the scheme
+list, the color-table data, ``src/librewxr/colors/schemes.py``, and this
+script) is written to ``docs/color-schemes-preview.stamp``.
+``scripts/generate_scheme_docs.py --check`` compares that stamp against
+the current inputs and reports the previews as stale when they differ.
+
 # Regenerate with:
 #   python3 -m venv /tmp/coverage-map-venv
 #   /tmp/coverage-map-venv/bin/pip install matplotlib numpy
@@ -34,6 +40,17 @@ SNOW_OUTPUT = REPO_ROOT / "docs" / "color-schemes-snow.png"
 # scheme to ``SCHEME_NAMES`` propagates through automatically.
 sys.path.insert(0, str(REPO_ROOT / "src"))
 from librewxr.colors.schemes import SCHEME_NAMES, get_lut  # noqa: E402
+
+# The docs script owns the canonical fingerprint of every input that shapes
+# these PNGs; reuse it (and its STAMP_PATH) so the generator and
+# ``generate_scheme_docs.py --check`` can never disagree on the stamp.
+# Importing it also pulls in ``librewxr.colors.schemes`` via the src path
+# inserted above, which only needs numpy — fine in this venv.
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+from generate_scheme_docs import (  # noqa: E402
+    STAMP_PATH,
+    compute_preview_fingerprint,
+)
 
 
 # Pixel encoding (matches ``data.store`` / ``colorize``):
@@ -111,3 +128,12 @@ if __name__ == "__main__":
         dbz_min=-10, dbz_max=50,
         title="LibreWXR — Snow Color Schemes",
     )
+
+    # Both PNGs are on disk — stamp the fingerprint of everything that
+    # shaped them so ``generate_scheme_docs.py --check`` can detect
+    # previews that predate a scheme / color-table / script change.
+    STAMP_PATH.write_text(
+        compute_preview_fingerprint(Path(__file__).resolve()) + "\n",
+        encoding="utf-8",
+    )
+    print(f"Wrote {STAMP_PATH}")
