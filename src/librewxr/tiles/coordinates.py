@@ -887,12 +887,12 @@ def warm_coordinate_caches(
     function so that real tile requests never pay the cold-start cost
     of trigonometric projections and array allocations.
 
-    Warms exactly the keys the request path uses: the plain indices /
-    fractional / latlon grids unconditionally (coverage and overlay paths),
-    and the padded variants only when the render path's derived pad
-    (``int(compute_blur_radius(...) * 3)`` when the sigma >= 0.5) is > 0.
-    Because the wrappers are store-backed, warming publishes to the shared
-    on-disk store and later workers' warm passes become store hits.
+    Warms exactly the keys the request path uses: only the plain indices /
+    fractional / latlon grids are warmed because the per-cycle geometry
+    warmer runs with pad=0. Padded variants are computed on demand by the
+    request path. Because the wrappers are store-backed, warming publishes
+    to the shared on-disk store and later workers' warm passes become store
+    hits.
 
     Returns the number of unique (region, z, x, y, tile_size) cache
     entries warmed.
@@ -913,16 +913,6 @@ def warm_coordinate_caches(
                     region_pixel_indices(region, z, x, y, tile_size)
                     region_pixel_indices_fractional(region, z, x, y, tile_size)
                     warmed += 1
-                # Derive the pad exactly like the render path (smooth=True
-                # default) from the finest overlapping region, then warm the
-                # padded variants with THAT pad so warm and request keys agree.
-                sigma = compute_blur_radius(regions[0], z, x, y, tile_size)
-                pad = int(sigma * 3) if sigma >= 0.5 else 0
-                if pad > 0:
-                    tile_pixel_latlons_padded(z, x, y, tile_size, pad)
-                    for region in regions:
-                        region_pixel_indices_padded(region, z, x, y, tile_size, pad)
-                        region_pixel_indices_fractional_padded(region, z, x, y, tile_size, pad)
     return warmed
 
 
