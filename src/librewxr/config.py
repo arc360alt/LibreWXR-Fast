@@ -17,9 +17,9 @@ _MODE_DEFAULTS: dict[str, dict[str, int]] = {
         "workers": 1,
         "tile_cache_mb": 200,
         "coord_cache_size": 2048,
-        "coord_store_mb": 1024,
+        "coord_store_mb": 4096,
         "warmer_threads": 0,  # 0 keeps the "auto = CPU-1" behaviour in single mode
-        "warm_coord_zoom": 6,
+        "warm_coord_zoom": 4,
     },
     "multi": {
         "workers": 16,

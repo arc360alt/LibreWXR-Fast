@@ -58,8 +58,8 @@ KIND_LATLON_PAD = "latlon_pad"          # tile_pixel_latlons_padded
 _COORD_DIRNAME = "coord"
 # prune() sweeps orphan *.tmp files (crashed writer) older than this.
 _TMP_TTL_SECONDS = 3600.0
-# prune() drains until the remaining entries fit in this fraction of budget.
-_PRUNE_TARGET_FRACTION = 0.9
+# prune() drains until the remaining entries fit the budget (no proactive headroom).
+_PRUNE_TARGET_FRACTION = 1.0
 # stats() on-disk scan TTL (time.monotonic).
 _STATS_TTL_SECONDS = 60.0
 

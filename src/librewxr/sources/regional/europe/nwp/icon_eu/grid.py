@@ -379,6 +379,10 @@ class ICONEUGrid:
         self._snow_masks: dict[tuple[int, int], np.ndarray] = {}
         self._client: httpx.AsyncClient | None = None
         self._latest_run_ts: int | None = None
+        # run_ts -> frozenset of native hourly lead-times interpolated so
+        # far.  Lets an unchanged run (same native lead set) skip the
+        # Farneback warper after below-window synthetic frames are evicted.
+        self._interpolated_runs: dict[int, frozenset[int]] = {}
         self._fetch_lock = asyncio.Lock()
 
         if cache_dir is not None:
@@ -498,6 +502,7 @@ class ICONEUGrid:
         self._frames = {}
         self._accum = {}
         self._snow_masks = {}
+        self._interpolated_runs = {}
         self._latest_run_ts = None
         self._load_cached_frames()
 
@@ -746,8 +751,11 @@ class ICONEUGrid:
         and snow side-by-side) back into the in-memory dicts at the
         new ``lead_seconds`` keys.
 
-        Returns the number of synthetic precip frames added.  Idempotent:
-        if the run already has stored-interval spacing, no work is done.
+        Returns the number of synthetic precip frames added.  Memoized
+        per run: a run whose native hourly lead set is unchanged since
+        the last interpolation is skipped, so eviction of below-window
+        synthetic frames no longer triggers re-interpolation of an
+        unchanged run.
         """
         from librewxr.data.nwp_interpolation import interpolate_run
 
@@ -757,6 +765,12 @@ class ICONEUGrid:
             if r == run_ts
         }
         if len(frames_by_lead) < 2:
+            return 0
+        native_leads = frozenset(
+            lead for lead in frames_by_lead
+            if lead % BRACKET_INTERVAL_SECONDS == 0
+        )
+        if self._interpolated_runs.get(run_ts) == native_leads:
             return 0
         snow_by_lead: dict[int, np.ndarray] | None = {
             lead: arr
@@ -795,6 +809,7 @@ class ICONEUGrid:
                     f"r{run_ts}_l{lead}_snow", snow_uint8,
                 )
                 self._snow_masks[(run_ts, lead)] = mm
+        self._interpolated_runs[run_ts] = native_leads
         return added
 
     async def _fetch_one_step(
@@ -954,6 +969,11 @@ class ICONEUGrid:
                 stale_accums.append((run_ts, step_h))
         for k in stale_accums:
             self._accum.pop(k, None)
+        # Drop interpolation memos for runs with no remaining frames.
+        live_runs = {run for (run, _lead) in self._frames}
+        for run_ts in list(self._interpolated_runs):
+            if run_ts not in live_runs:
+                del self._interpolated_runs[run_ts]
         if stale_frames:
             logger.info(
                 "ICON-EU: evicted %d out-of-window frame(s)", len(stale_frames),

@@ -6,7 +6,7 @@
 as ``workers`` / ``tile_cache_mb`` / ``warmer_threads`` (see
 ``config._MODE_DEFAULTS`` and ``Settings._apply_mode_defaults``):
 
-- unset or 0 -> per-mode default (single: 6, multi: -1 = no eager warm)
+- unset or 0 -> per-mode default (single: 4, multi: -1 = no eager warm)
 - negative   -> warm disabled entirely
 - positive   -> force that zoom
 
@@ -40,7 +40,7 @@ def _fresh_settings(monkeypatch, *, mode, warm_zoom=None):
 @pytest.mark.parametrize(
     "mode,expected",
     [
-        ("single", 6),  # single warms to zoom 6 in the background by default
+        ("single", 4),  # single warms to zoom 4 in the background by default
         ("multi", -1),  # multi render workers do no eager warm by default
     ],
 )
@@ -53,7 +53,7 @@ def test_warm_coord_zoom_mode_default(monkeypatch, mode, expected):
 def test_warm_coord_zoom_explicit_zero_uses_mode_default(monkeypatch):
     # 0 is the "use mode default" sentinel, not "disabled".
     s = _fresh_settings(monkeypatch, mode="single", warm_zoom=0)
-    assert s.warm_coord_zoom == 6
+    assert s.warm_coord_zoom == 4
     s = _fresh_settings(monkeypatch, mode="multi", warm_zoom=0)
     assert s.warm_coord_zoom == -1
 

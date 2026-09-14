@@ -271,6 +271,10 @@ class JMAMSMGrid:
         self._snow_masks: dict[tuple[int, int], np.ndarray] = {}
         self._fs: fsspec.AbstractFileSystem | None = None
         self._latest_run_ts: int | None = None
+        # run_ts → frozenset of native hourly lead-times interpolated so
+        # far.  Lets an unchanged run (same native lead set) skip the
+        # Farneback warper after below-window synthetic frames are evicted.
+        self._interpolated_runs: dict[int, frozenset[int]] = {}
         self._fetch_lock = asyncio.Lock()
 
         if cache_dir is not None:
@@ -380,6 +384,7 @@ class JMAMSMGrid:
         self._fetch_lock = asyncio.Lock()
         self._frames = {}
         self._snow_masks = {}
+        self._interpolated_runs = {}
         self._latest_run_ts = None
         self._load_cached_frames()
 
@@ -600,7 +605,13 @@ class JMAMSMGrid:
                 )
 
     def _interpolate_run_frames(self, run_ts: int) -> int:
-        """Fill 10-min synthetic frames between hourly originals for one run."""
+        """Fill 10-min synthetic frames between hourly originals for one run.
+
+        Memoized per run: a run whose native hourly lead set is unchanged
+        since the last interpolation is skipped, so eviction of below-window
+        synthetic frames no longer triggers re-interpolation of an unchanged
+        run.
+        """
         from librewxr.data.nwp_interpolation import interpolate_run
 
         frames_by_lead: dict[int, np.ndarray] = {
@@ -609,6 +620,12 @@ class JMAMSMGrid:
             if r == run_ts
         }
         if len(frames_by_lead) < 2:
+            return 0
+        native_leads = frozenset(
+            lead for lead in frames_by_lead
+            if lead % BRACKET_INTERVAL_SECONDS == 0
+        )
+        if self._interpolated_runs.get(run_ts) == native_leads:
             return 0
         snow_by_lead: dict[int, np.ndarray] | None = {
             lead: arr
@@ -647,6 +664,7 @@ class JMAMSMGrid:
                     f"r{run_ts}_l{lead}_snow", snow_uint8,
                 )
                 self._snow_masks[(run_ts, lead)] = mm
+        self._interpolated_runs[run_ts] = native_leads
         return added
 
     def _fetch_one_step_sync(
@@ -730,6 +748,11 @@ class JMAMSMGrid:
                 self._snow_frame_path(*key).unlink(missing_ok=True)
             except OSError:
                 pass
+        # Drop interpolation memos for runs with no remaining frames.
+        live_runs = {run for (run, _lead) in self._frames}
+        for run_ts in list(self._interpolated_runs):
+            if run_ts not in live_runs:
+                del self._interpolated_runs[run_ts]
         if stale_frames:
             logger.info(
                 "JMA MSM: evicted %d out-of-window frame(s)", len(stale_frames),

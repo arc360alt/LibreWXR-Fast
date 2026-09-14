@@ -335,8 +335,8 @@ class TestCoordStoreBacked:
         assert not second[1].flags.writeable
         assert coord._STORE.stats()["hits"] > hits_before
 
-    def test_warm_request_key_agreement(self, coord_store_env):
-        """Warming publishes exactly the keys the render path later reads."""
+    def test_warm_publishes_plain_keys(self, coord_store_env):
+        """Eager warm publishes the plain keys the render path reads; padded variants publish on demand."""
         region = REGIONS[self._REGION]
         ts = 256
         assert warm_coordinate_caches([self._REGION], max_zoom=3, tile_size=ts) > 0
@@ -354,20 +354,27 @@ class TestCoordStoreBacked:
         sigma = coord.compute_blur_radius(region, z, x, y, ts)
         pad = int(sigma * 3) if sigma >= 0.5 else 0
 
-        # The same calls the render path makes for that pad.
+        # Phase 1: plain keys were pre-warmed, so the request path reads
+        # them from the store without publishing anything new.
         coord.region_pixel_indices(region, z, x, y, ts)
         coord.region_pixel_indices_fractional(region, z, x, y, ts)
         coord.tile_pixel_latlons(z, x, y, ts)
+        stats_plain = coord._STORE.stats()
+        assert stats_plain["publishes"] == publishes_before, (
+            f"plain request keys should be pre-warmed, not republished: {stats_plain}"
+        )
+        assert stats_plain["hits"] > hits_before
+
+        # Phase 2: padded variants were not warmed, so the request path
+        # publishes exactly the padded keys it computes on demand.
         if pad > 0:
             coord.region_pixel_indices_padded(region, z, x, y, ts, pad)
             coord.region_pixel_indices_fractional_padded(region, z, x, y, ts, pad)
             coord.tile_pixel_latlons_padded(z, x, y, ts, pad)
-
-        stats = coord._STORE.stats()
-        assert stats["publishes"] == publishes_before, (
-            f"warm/request keys disagree: {stats}"
-        )
-        assert stats["hits"] > hits_before
+            stats_padded = coord._STORE.stats()
+            assert stats_padded["publishes"] == publishes_before + 3, (
+                f"padded keys should publish on demand: {stats_padded}"
+            )
 
     def test_coord_store_cold_disabled_store(self, coord_store_env, monkeypatch):
         """Store disabled -> coord_store_cold() is False (no dedup to jitter for)."""

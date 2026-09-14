@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Cacheable geometry
 # ---------------------------------------------------------------------------
-# A tile request expands across many independent axes — color scheme (9),
+# A tile request expands across many independent axes — color scheme (15),
 # output format (PNG / WebP), snow flag, smooth flag, arrow style.  The
 # expensive 95% of rendering (region sampling, smoothing, NWP blend) is
 # identical across all of them; only the final colorize + blur + encode +
